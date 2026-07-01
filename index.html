@@ -1419,8 +1419,6 @@ var d=null!=c&&c.hydratedSources||null,e=!1,f="",g=aj;null!==c&&void 0!==c&&(!0=
 function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmountComponentAtNode=function(a){if(!Vd(a))throw Error(m(40));return a._reactRootContainer?(yb(function(){Wd(null,null,a,!1,function(){a._reactRootContainer=null;a[Ja]=null})}),!0):!1};Q.unstable_batchedUpdates=Tf;Q.unstable_renderSubtreeIntoContainer=function(a,b,c,d){if(!Vd(c))throw Error(m(200));if(null==a||void 0===a._reactInternals)throw Error(m(38));return Wd(a,b,c,!1,d)};Q.version="18.3.1-next-f1338f8080-20240426"});
 })();
 </script>
-
-
 <script>
 const {
   useState,
@@ -1539,6 +1537,7 @@ function loadState() {
       const parsed = JSON.parse(raw);
       if (!parsed.documents) parsed.documents = defaultDocuments();
       if (!parsed.settings.business) parsed.settings.business = defaultBusiness();
+      if (!parsed.upworkEntries) parsed.upworkEntries = defaultUpworkEntries();
       return parsed;
     }
   } catch (e) {}
@@ -1547,14 +1546,29 @@ function loadState() {
     expenses: [],
     tasks: defaultTasks(),
     documents: defaultDocuments(),
+    upworkEntries: defaultUpworkEntries(),
     settings: {
       currency: 'GBP',
       eurGbpRate: 0.855,
+      usdGbpRate: 0.79,
       autonomoStartDate: null,
       hasNIE: false,
       business: defaultBusiness()
     }
   };
+}
+function defaultUpworkEntries() {
+  return [{
+    id: 'uw1',
+    client: 'Allen Dempster',
+    jobName: 'UI/UX Designer Needed for Modern Mobile App (Full UI + UX, Figma, Product-Focused)',
+    totalBilled: 3520,
+    feesPaid: 352,
+    taxesPaid: 70.4,
+    yourEarnings: 3097.6,
+    currency: 'USD',
+    importedAt: '2026-07-01'
+  }];
 }
 function defaultBusiness() {
   return {
@@ -1996,6 +2010,13 @@ function App() {
     ...s,
     invoices: s.invoices.filter(i => i.id !== id)
   }));
+  const markInvoicePaid = id => setState(s => ({
+    ...s,
+    invoices: s.invoices.map(i => i.id === id ? {
+      ...i,
+      status: i.status === 'paid' ? 'pending' : 'paid'
+    } : i)
+  }));
   const updateExpense = exp => {
     setState(s => {
       const exists = s.expenses.find(e => e.id === exp.id);
@@ -2012,6 +2033,17 @@ function App() {
   const deleteExpense = id => setState(s => ({
     ...s,
     expenses: s.expenses.filter(e => e.id !== id)
+  }));
+  const addUpworkEntries = entries => setState(s => ({
+    ...s,
+    upworkEntries: [...s.upworkEntries, ...entries.map(e => ({
+      ...e,
+      id: uid()
+    }))]
+  }));
+  const deleteUpworkEntry = id => setState(s => ({
+    ...s,
+    upworkEntries: s.upworkEntries.filter(e => e.id !== id)
   }));
   const toggleTask = id => setState(s => ({
     ...s,
@@ -2105,9 +2137,12 @@ function App() {
     onNewInvoice: () => setInvoiceModal({}),
     onEditInvoice: inv => setInvoiceModal(inv),
     onDeleteInvoice: deleteInvoice,
+    onMarkPaid: markInvoicePaid,
     onNewExpense: () => setExpenseModal({}),
     onEditExpense: e => setExpenseModal(e),
-    onDeleteExpense: deleteExpense
+    onDeleteExpense: deleteExpense,
+    onAddUpwork: addUpworkEntries,
+    onDeleteUpwork: deleteUpworkEntry
   }), page === 'tax' && /*#__PURE__*/React.createElement(TaxEstimate, {
     state: state,
     currency: currency
@@ -2155,22 +2190,31 @@ function Dashboard({
     invoices,
     expenses,
     tasks,
-    settings
+    settings,
+    upworkEntries = []
   } = state;
   const now = new Date();
   const ytdInvoices = invoices.filter(i => new Date(i.issueDate).getFullYear() === now.getFullYear());
   const paid = ytdInvoices.filter(i => i.status === 'paid');
   const pending = ytdInvoices.filter(i => i.status === 'pending');
   const overdue = ytdInvoices.filter(i => i.status === 'pending' && new Date(i.dueDate) < now);
-  const toGBP = (amount, curr) => curr === 'EUR' ? amount * (settings.eurGbpRate || 0.855) : amount;
-  const totalEarned = paid.reduce((sum, i) => sum + toGBP(i.amount, i.currency), 0);
+  const usdToGBP = amount => amount * (settings.eurGbpRate || 0.855) * 1.0; // approx via EUR rate
+  const toGBP = (amount, curr) => {
+    if (curr === 'EUR') return amount * (settings.eurGbpRate || 0.855);
+    if (curr === 'USD') return amount * (settings.usdGbpRate || 0.79);
+    return amount;
+  };
+  const totalInvoiceEarned = paid.reduce((sum, i) => sum + toGBP(i.amount, i.currency), 0);
+  const ytdUpwork = upworkEntries.filter(e => new Date(e.importedAt).getFullYear() === now.getFullYear());
+  const totalUpworkEarned = ytdUpwork.reduce((sum, e) => sum + toGBP(e.yourEarnings, e.currency), 0);
+  const totalEarned = totalInvoiceEarned + totalUpworkEarned;
   const totalPending = pending.reduce((sum, i) => sum + toGBP(i.amount, i.currency), 0);
   const totalExpenses = expenses.filter(e => new Date(e.date).getFullYear() === now.getFullYear()).reduce((sum, e) => sum + toGBP(e.amount, e.currency), 0);
   const netYTD = totalEarned - totalExpenses;
   const tasksDone = tasks.filter(t => t.done).length;
   const tasksPct = Math.round(tasksDone / tasks.length * 100);
 
-  // last 6 months bar chart
+  // last 6 months bar chart — invoices + upwork
   const months = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -2183,13 +2227,17 @@ function Dashboard({
     year,
     month
   }) => {
-    const sum = invoices.filter(i => i.status === 'paid').filter(i => {
+    const invSum = invoices.filter(i => i.status === 'paid').filter(i => {
       const d = new Date(i.issueDate);
       return d.getFullYear() === year && d.getMonth() === month;
     }).reduce((s, i) => s + toGBP(i.amount, i.currency), 0);
+    const uwSum = upworkEntries.filter(e => {
+      const d = new Date(e.importedAt);
+      return d.getFullYear() === year && d.getMonth() === month;
+    }).reduce((s, e) => s + toGBP(e.yourEarnings, e.currency), 0);
     return {
       label: MONTH_NAMES[month],
-      value: sum
+      value: invSum + uwSum
     };
   });
   const maxVal = Math.max(...monthlyTotals.map(m => m.value), 1);
@@ -2389,17 +2437,88 @@ function Earnings({
   onNewInvoice,
   onEditInvoice,
   onDeleteInvoice,
+  onMarkPaid,
   onNewExpense,
   onEditExpense,
-  onDeleteExpense
+  onDeleteExpense,
+  onAddUpwork,
+  onDeleteUpwork
 }) {
   const [tab, setTab] = useState('invoices');
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState(null);
   const {
     invoices,
-    expenses
+    expenses,
+    upworkEntries = [],
+    settings
   } = state;
   const sortedInvoices = [...invoices].sort((a, b) => new Date(b.issueDate) - new Date(a.issueDate));
   const sortedExpenses = [...expenses].sort((a, b) => new Date(b.date) - new Date(a.date));
+  const sortedUpwork = [...upworkEntries].sort((a, b) => new Date(b.importedAt) - new Date(a.importedAt));
+  const parseUpworkCSV = text => {
+    const lines = text.trim().split('\n');
+    const header = lines[0].replace(/"/g, '').split(',').map(h => h.trim().toLowerCase());
+    const entries = [];
+    for (let i = 1; i < lines.length; i++) {
+      const raw = lines[i];
+      if (!raw.trim()) continue;
+      // Handle quoted fields
+      const cols = [];
+      let cur = '',
+        inQuote = false;
+      for (const ch of raw) {
+        if (ch === '"') {
+          inQuote = !inQuote;
+        } else if (ch === ',' && !inQuote) {
+          cols.push(cur.trim());
+          cur = '';
+        } else cur += ch;
+      }
+      cols.push(cur.trim());
+      const get = key => {
+        const idx = header.findIndex(h => h.includes(key));
+        return idx >= 0 ? cols[idx] || '' : '';
+      };
+      entries.push({
+        client: get('client'),
+        jobName: get('job'),
+        totalBilled: Math.abs(parseFloat(get('total billed')) || 0),
+        feesPaid: Math.abs(parseFloat(get('fees paid')) || 0),
+        taxesPaid: Math.abs(parseFloat(get('taxes paid')) || 0),
+        yourEarnings: parseFloat(get('your earnings')) || 0,
+        currency: 'USD',
+        importedAt: new Date().toISOString().slice(0, 10)
+      });
+    }
+    return entries.filter(e => e.client || e.jobName);
+  };
+  const handleFileUpload = e => {
+    const file = e.target.files[0];
+    if (!file) return;
+    setImporting(true);
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const entries = parseUpworkCSV(ev.target.result);
+        onAddUpwork(entries);
+        setImportResult({
+          count: entries.length,
+          error: null
+        });
+        setTab('upwork');
+      } catch (err) {
+        setImportResult({
+          count: 0,
+          error: 'Could not parse file. Make sure it\'s a standard Upwork earnings CSV.'
+        });
+      }
+      setImporting(false);
+      setTimeout(() => setImportResult(null), 4000);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
   return /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
     className: "page-header",
     style: {
@@ -2415,18 +2534,38 @@ function Earnings({
     className: "page-title"
   }, "Earnings"), /*#__PURE__*/React.createElement("p", {
     className: "page-sub"
-  }, "Every invoice and expense, in one place — the record you'll want when you register and file.")), /*#__PURE__*/React.createElement("div", {
+  }, "Every invoice, Upwork job, and expense in one place.")), /*#__PURE__*/React.createElement("div", {
     style: {
       display: 'flex',
-      gap: '8px'
+      gap: '8px',
+      flexWrap: 'wrap'
     }
   }, /*#__PURE__*/React.createElement("button", {
     className: "btn",
     onClick: onNewExpense
-  }, /*#__PURE__*/React.createElement(Icon.plus, null), " Expense"), /*#__PURE__*/React.createElement("button", {
+  }, /*#__PURE__*/React.createElement(Icon.plus, null), " Expense"), tab === 'upwork' ? /*#__PURE__*/React.createElement("label", {
+    className: "btn btn-primary",
+    style: {
+      cursor: 'pointer'
+    }
+  }, /*#__PURE__*/React.createElement(Icon.plus, null), " Import CSV", /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: ".csv",
+    style: {
+      display: 'none'
+    },
+    onChange: handleFileUpload
+  })) : /*#__PURE__*/React.createElement("button", {
     className: "btn btn-primary",
     onClick: onNewInvoice
-  }, /*#__PURE__*/React.createElement(Icon.plus, null), " Invoice"))), /*#__PURE__*/React.createElement("div", {
+  }, /*#__PURE__*/React.createElement(Icon.plus, null), " Invoice"))), importResult && /*#__PURE__*/React.createElement("div", {
+    className: "callout " + (importResult.error ? "callout-warn" : "callout-info"),
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "callout-icon"
+  }, /*#__PURE__*/React.createElement(Icon.info, null)), /*#__PURE__*/React.createElement("span", null, importResult.error || `Imported ${importResult.count} Upwork ${importResult.count === 1 ? 'entry' : 'entries'} successfully.`)), /*#__PURE__*/React.createElement("div", {
     className: "segment",
     style: {
       marginBottom: 20
@@ -2434,7 +2573,10 @@ function Earnings({
   }, /*#__PURE__*/React.createElement("button", {
     className: "segment-btn" + (tab === 'invoices' ? " active" : ""),
     onClick: () => setTab('invoices')
-  }, "Invoices (", invoices.length, ")"), /*#__PURE__*/React.createElement("button", {
+  }, "My invoices (", invoices.length, ")"), /*#__PURE__*/React.createElement("button", {
+    className: "segment-btn" + (tab === 'upwork' ? " active" : ""),
+    onClick: () => setTab('upwork')
+  }, "Upwork (", upworkEntries.length, ")"), /*#__PURE__*/React.createElement("button", {
     className: "segment-btn" + (tab === 'expenses' ? " active" : ""),
     onClick: () => setTab('expenses')
   }, "Expenses (", expenses.length, ")")), tab === 'invoices' && (sortedInvoices.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
@@ -2463,11 +2605,108 @@ function Earnings({
     className: "row-actions"
   }, /*#__PURE__*/React.createElement("button", {
     className: "icon-btn",
+    title: inv.status === 'paid' ? 'Mark as unpaid' : 'Mark as paid',
+    onClick: () => onMarkPaid(inv.id),
+    style: {
+      color: inv.status === 'paid' ? 'var(--green)' : 'var(--label)'
+    }
+  }, /*#__PURE__*/React.createElement("svg", {
+    width: "15",
+    height: "15",
+    viewBox: "0 0 16 16",
+    fill: "none"
+  }, /*#__PURE__*/React.createElement("circle", {
+    cx: "8",
+    cy: "8",
+    r: "6.5",
+    stroke: "currentColor",
+    strokeWidth: "1.3"
+  }), /*#__PURE__*/React.createElement("path", {
+    d: "M5 8L7 10.5L11 5.5",
+    stroke: "currentColor",
+    strokeWidth: "1.4",
+    strokeLinecap: "round",
+    strokeLinejoin: "round"
+  }))), /*#__PURE__*/React.createElement("button", {
+    className: "icon-btn",
     onClick: () => onEditInvoice(inv)
   }, /*#__PURE__*/React.createElement(Icon.edit, null)), /*#__PURE__*/React.createElement("button", {
     className: "icon-btn",
     onClick: () => onDeleteInvoice(inv.id)
-  }, /*#__PURE__*/React.createElement(Icon.trash, null)))))))))), tab === 'expenses' && (sortedExpenses.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+  }, /*#__PURE__*/React.createElement(Icon.trash, null)))))))))), tab === 'upwork' && /*#__PURE__*/React.createElement("div", null, sortedUpwork.length === 0 ? /*#__PURE__*/React.createElement("div", {
+    className: "card empty-state"
+  }, /*#__PURE__*/React.createElement("p", {
+    className: "empty-state-title"
+  }, "No Upwork earnings yet"), /*#__PURE__*/React.createElement("p", {
+    className: "empty-state-sub"
+  }, "Download your earnings CSV from Upwork (Reports → Earnings by Client) and import it above."), /*#__PURE__*/React.createElement("label", {
+    className: "btn btn-primary",
+    style: {
+      cursor: 'pointer',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '6px'
+    }
+  }, /*#__PURE__*/React.createElement(Icon.plus, null), " Import Upwork CSV", /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: ".csv",
+    style: {
+      display: 'none'
+    },
+    onChange: handleFileUpload
+  }))) : /*#__PURE__*/React.createElement(React.Fragment, null, /*#__PURE__*/React.createElement("div", {
+    className: "callout callout-info",
+    style: {
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    className: "callout-icon"
+  }, /*#__PURE__*/React.createElement(Icon.info, null)), /*#__PURE__*/React.createElement("span", null, "Upwork pays in USD. Amounts shown as imported — converted to ", currency, " in dashboard totals using your USD rate in Settings.")), /*#__PURE__*/React.createElement("div", {
+    className: "table-wrap"
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "Client"), /*#__PURE__*/React.createElement("th", null, "Job"), /*#__PURE__*/React.createElement("th", null, "Billed"), /*#__PURE__*/React.createElement("th", null, "Upwork fee"), /*#__PURE__*/React.createElement("th", null, "Your earnings"), /*#__PURE__*/React.createElement("th", null, "Imported"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, sortedUpwork.map(e => /*#__PURE__*/React.createElement("tr", {
+    key: e.id
+  }, /*#__PURE__*/React.createElement("td", {
+    className: "cell-strong"
+  }, e.client), /*#__PURE__*/React.createElement("td", {
+    className: "cell-muted",
+    style: {
+      maxWidth: '220px',
+      overflow: 'hidden',
+      textOverflow: 'ellipsis',
+      whiteSpace: 'nowrap'
+    }
+  }, e.jobName), /*#__PURE__*/React.createElement("td", {
+    className: "cell-muted"
+  }, fmtMoney(e.totalBilled, 'USD')), /*#__PURE__*/React.createElement("td", {
+    className: "cell-muted",
+    style: {
+      color: 'var(--red-bright)'
+    }
+  }, "-", fmtMoney(e.feesPaid + e.taxesPaid, 'USD')), /*#__PURE__*/React.createElement("td", {
+    className: "cell-strong",
+    style: {
+      color: 'var(--green)'
+    }
+  }, fmtMoney(e.yourEarnings, 'USD')), /*#__PURE__*/React.createElement("td", {
+    className: "cell-muted"
+  }, fmtDate(e.importedAt)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("div", {
+    className: "row-actions"
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "icon-btn",
+    onClick: () => onDeleteUpwork(e.id)
+  }, /*#__PURE__*/React.createElement(Icon.trash, null))))))))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      textAlign: 'right',
+      padding: '14px 16px 0',
+      fontSize: '12px',
+      color: 'var(--label)'
+    }
+  }, "Total: ", /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: 'var(--warm-white)',
+      marginLeft: '6px'
+    }
+  }, fmtMoney(sortedUpwork.reduce((s, e) => s + e.yourEarnings, 0), 'USD'))))), tab === 'expenses' && (sortedExpenses.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
     title: "No expenses logged",
     sub: "Track business costs as you go — software, equipment, anything deductible later.",
     cta: "Add expense",
@@ -3707,7 +3946,10 @@ function Settings({
   }, "GBP (£)"), /*#__PURE__*/React.createElement("option", {
     value: "EUR"
   }, "EUR (€)"))), /*#__PURE__*/React.createElement("div", {
-    className: "field"
+    className: "field",
+    style: {
+      marginBottom: 16
+    }
   }, /*#__PURE__*/React.createElement("label", {
     className: "field-label"
   }, "EUR → GBP rate (for converting mixed-currency totals)"), /*#__PURE__*/React.createElement("input", {
@@ -3716,6 +3958,17 @@ function Settings({
     value: settings.eurGbpRate,
     onChange: e => onChange({
       eurGbpRate: parseFloat(e.target.value) || 0
+    })
+  })), /*#__PURE__*/React.createElement("div", {
+    className: "field"
+  }, /*#__PURE__*/React.createElement("label", {
+    className: "field-label"
+  }, "USD → GBP rate (for Upwork earnings)"), /*#__PURE__*/React.createElement("input", {
+    type: "number",
+    step: "0.001",
+    value: settings.usdGbpRate || 0.79,
+    onChange: e => onChange({
+      usdGbpRate: parseFloat(e.target.value) || 0
     })
   }))), /*#__PURE__*/React.createElement("div", {
     className: "card",
