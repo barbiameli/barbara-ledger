@@ -1419,6 +1419,8 @@ var d=null!=c&&c.hydratedSources||null,e=!1,f="",g=aj;null!==c&&void 0!==c&&(!0=
 function(a,b,c){if(!Vd(b))throw Error(m(200));return Wd(null,a,b,!1,c)};Q.unmountComponentAtNode=function(a){if(!Vd(a))throw Error(m(40));return a._reactRootContainer?(yb(function(){Wd(null,null,a,!1,function(){a._reactRootContainer=null;a[Ja]=null})}),!0):!1};Q.unstable_batchedUpdates=Tf;Q.unstable_renderSubtreeIntoContainer=function(a,b,c,d){if(!Vd(c))throw Error(m(200));if(null==a||void 0===a._reactInternals)throw Error(m(38));return Wd(a,b,c,!1,d)};Q.version="18.3.1-next-f1338f8080-20240426"});
 })();
 </script>
+
+
 <script>
 const {
   useState,
@@ -2149,8 +2151,33 @@ function App() {
   }), page === 'documents' && /*#__PURE__*/React.createElement(Documents, {
     documents: state.documents,
     business: state.settings.business,
+    invoices: state.invoices,
     onSave: updateDocument,
-    onDelete: deleteDocument
+    onDelete: deleteDocument,
+    onMarkDocumentPaid: doc => {
+      // Find matching earnings invoice by number/client, or create one
+      const existing = state.invoices.find(i => i.docId === doc.id || i.client === (doc.clientCompany || doc.clientName) && String(i.amount) === String(doc.amount));
+      if (existing) {
+        markInvoicePaid(existing.id);
+      } else {
+        // Create entry in earnings and mark paid immediately
+        const newInv = {
+          id: uid(),
+          docId: doc.id,
+          client: doc.clientCompany || doc.clientName,
+          description: doc.description,
+          amount: doc.amount,
+          currency: doc.currency,
+          issueDate: doc.issueDate,
+          dueDate: doc.dueDate,
+          status: 'paid'
+        };
+        setState(s => ({
+          ...s,
+          invoices: [...s.invoices, newInv]
+        }));
+      }
+    }
   }), page === 'tasks' && /*#__PURE__*/React.createElement(TaskTracker, {
     tasks: state.tasks,
     onToggle: toggleTask
@@ -3081,14 +3108,19 @@ function TaskTracker({
 function Documents({
   documents,
   business,
+  invoices = [],
   onSave,
-  onDelete
+  onDelete,
+  onMarkDocumentPaid
 }) {
-  const [editing, setEditing] = useState(null); // null | doc object
+  const [editing, setEditing] = useState(null);
   const [tab, setTab] = useState('invoice');
   const sorted = [...documents].sort((a, b) => new Date(b.issueDate) - new Date(a.issueDate));
-  const invoices = sorted.filter(d => d.type === 'invoice');
+  const docInvoices = sorted.filter(d => d.type === 'invoice');
   const receipts = sorted.filter(d => d.type === 'receipt');
+
+  // Check if a document invoice is already marked paid in earnings
+  const isPaid = doc => invoices.some(i => i.status === 'paid' && (i.docId === doc.id || i.client === (doc.clientCompany || doc.clientName) && String(i.amount) === String(doc.amount)));
   const nextNumber = type => {
     const nums = documents.filter(d => d.type === type).map(d => parseInt(d.number, 10)).filter(n => !isNaN(n));
     const next = (nums.length ? Math.max(...nums) : 0) + 1;
@@ -3159,37 +3191,68 @@ function Documents({
   }, /*#__PURE__*/React.createElement("button", {
     className: "segment-btn" + (tab === 'invoice' ? " active" : ""),
     onClick: () => setTab('invoice')
-  }, "Invoices (", invoices.length, ")"), /*#__PURE__*/React.createElement("button", {
+  }, "Invoices (", docInvoices.length, ")"), /*#__PURE__*/React.createElement("button", {
     className: "segment-btn" + (tab === 'receipt' ? " active" : ""),
     onClick: () => setTab('receipt')
-  }, "Receipts (", receipts.length, ")")), tab === 'invoice' && (invoices.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+  }, "Receipts (", receipts.length, ")")), tab === 'invoice' && (docInvoices.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
     title: "No invoices yet",
     sub: "Create your first invoice to get a downloadable PDF.",
     cta: "New invoice",
     onClick: () => setEditing(newDoc('invoice'))
   }) : /*#__PURE__*/React.createElement("div", {
     className: "table-wrap"
-  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "No."), /*#__PURE__*/React.createElement("th", null, "Client"), /*#__PURE__*/React.createElement("th", null, "Issued"), /*#__PURE__*/React.createElement("th", null, "Due"), /*#__PURE__*/React.createElement("th", null, "Amount"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, invoices.map(d => /*#__PURE__*/React.createElement("tr", {
-    key: d.id
-  }, /*#__PURE__*/React.createElement("td", {
-    className: "cell-strong"
-  }, "#", d.number), /*#__PURE__*/React.createElement("td", {
-    className: "cell-muted"
-  }, d.clientCompany || d.clientName), /*#__PURE__*/React.createElement("td", {
-    className: "cell-muted"
-  }, fmtDate(d.issueDate)), /*#__PURE__*/React.createElement("td", {
-    className: "cell-muted"
-  }, fmtDate(d.dueDate)), /*#__PURE__*/React.createElement("td", {
-    className: "cell-strong"
-  }, fmtMoney(d.amount, d.currency)), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("div", {
-    className: "row-actions"
-  }, /*#__PURE__*/React.createElement("button", {
-    className: "icon-btn",
-    onClick: () => setEditing(d)
-  }, /*#__PURE__*/React.createElement(Icon.edit, null)), /*#__PURE__*/React.createElement("button", {
-    className: "icon-btn",
-    onClick: () => onDelete(d.id)
-  }, /*#__PURE__*/React.createElement(Icon.trash, null)))))))))), tab === 'receipt' && (receipts.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
+  }, /*#__PURE__*/React.createElement("table", null, /*#__PURE__*/React.createElement("thead", null, /*#__PURE__*/React.createElement("tr", null, /*#__PURE__*/React.createElement("th", null, "No."), /*#__PURE__*/React.createElement("th", null, "Client"), /*#__PURE__*/React.createElement("th", null, "Issued"), /*#__PURE__*/React.createElement("th", null, "Due"), /*#__PURE__*/React.createElement("th", null, "Amount"), /*#__PURE__*/React.createElement("th", null, "Status"), /*#__PURE__*/React.createElement("th", null))), /*#__PURE__*/React.createElement("tbody", null, docInvoices.map(d => {
+    const paid = isPaid(d);
+    return /*#__PURE__*/React.createElement("tr", {
+      key: d.id
+    }, /*#__PURE__*/React.createElement("td", {
+      className: "cell-strong"
+    }, "#", d.number), /*#__PURE__*/React.createElement("td", {
+      className: "cell-muted"
+    }, d.clientCompany || d.clientName), /*#__PURE__*/React.createElement("td", {
+      className: "cell-muted"
+    }, fmtDate(d.issueDate)), /*#__PURE__*/React.createElement("td", {
+      className: "cell-muted"
+    }, fmtDate(d.dueDate)), /*#__PURE__*/React.createElement("td", {
+      className: "cell-strong"
+    }, fmtMoney(d.amount, d.currency)), /*#__PURE__*/React.createElement("td", null, paid ? /*#__PURE__*/React.createElement("span", {
+      className: "pill pill-paid"
+    }, "Paid") : /*#__PURE__*/React.createElement("span", {
+      className: "pill pill-pending"
+    }, "Pending")), /*#__PURE__*/React.createElement("td", null, /*#__PURE__*/React.createElement("div", {
+      className: "row-actions"
+    }, /*#__PURE__*/React.createElement("button", {
+      className: "icon-btn",
+      title: paid ? 'Mark as unpaid' : 'Mark as paid',
+      style: {
+        color: paid ? 'var(--green)' : 'var(--label)'
+      },
+      onClick: () => onMarkDocumentPaid(d)
+    }, /*#__PURE__*/React.createElement("svg", {
+      width: "15",
+      height: "15",
+      viewBox: "0 0 16 16",
+      fill: "none"
+    }, /*#__PURE__*/React.createElement("circle", {
+      cx: "8",
+      cy: "8",
+      r: "6.5",
+      stroke: "currentColor",
+      strokeWidth: "1.3"
+    }), /*#__PURE__*/React.createElement("path", {
+      d: "M5 8L7 10.5L11 5.5",
+      stroke: "currentColor",
+      strokeWidth: "1.4",
+      strokeLinecap: "round",
+      strokeLinejoin: "round"
+    }))), /*#__PURE__*/React.createElement("button", {
+      className: "icon-btn",
+      onClick: () => setEditing(d)
+    }, /*#__PURE__*/React.createElement(Icon.edit, null)), /*#__PURE__*/React.createElement("button", {
+      className: "icon-btn",
+      onClick: () => onDelete(d.id)
+    }, /*#__PURE__*/React.createElement(Icon.trash, null)))));
+  }))))), tab === 'receipt' && (receipts.length === 0 ? /*#__PURE__*/React.createElement(EmptyState, {
     title: "No receipts yet",
     sub: "Create a receipt once payment's confirmed.",
     cta: "New receipt",
